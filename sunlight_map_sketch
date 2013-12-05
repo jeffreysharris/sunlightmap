@@ -1,0 +1,669 @@
+/* Open Source Congressional Finance and Voting Map v. 0.1
+by Jeff Harris
+produced for:
+IM301 - Image Text Media
+Stephen Slappe
+Pacific Northwest College of Art
+May 13th, 2013
+*/
+import processing.core.*;
+import processing.data.*;
+import processing.event.*;
+import processing.opengl.*;
+import org.json.*;
+import java.util.Iterator;
+import java.util.HashSet;
+import java.util.HashMap;
+import java.util.ArrayList;
+import java.io.File;
+import java.io.BufferedReader;
+import java.io.PrintWriter;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.IOException;
+public class subversion_project_latest_map_2 extends PApplet {
+PImage mapImage;
+PFont f;
+Table locationTable;
+int rowCount;
+String state;
+int cir_radius = 9;
+int textsize = 12;
+float ln_x_bttm = 0;
+float stateloc;
+float cir_x;
+float cir_y_top;
+float cir_y_bttm;
+String member_id;
+Congress congress;
+Votes votes;
+Money money;
+String congress_api_key = "************"; // register for a congressional API key with NYTimes and put it here
+String finance_api_key = "***********"; // register for a campaign finance API key with NYTimes and put it here
+String base_congress_url = "http://api.nytimes.com/svc/politics/v3/us/legislative/congress/";
+String base_finance_url = "http://api.nytimes.com/svc/elections/us/v3/finances/";
+public void setup() {
+f = createFont("FranklinGothic-Medium", textsize);
+textFont(f);
+size(1280, 800);
+mapImage = loadImage("map.png");
+locationTable = new Table("locations - centered.tsv");
+rowCount = locationTable.getRowCount();
+congress = new Congress();
+votes = new Votes();
+money = new Money();
+/*
+congress.getRep();
+congress.getSenator();
+congress.getVotes();
+congress.printCongress();
+*/
+}
+public void draw() {
+background(255);
+imageMode(CENTER);
+image(mapImage, width/2, height/2);
+smooth();
+fill(0, 192, 0);
+noStroke();
+for (int row = 0; row < rowCount; row++) {
+float x = locationTable.getFloat(row, 1);
+float y = locationTable.getFloat(row, 2);
+ellipse(x, y, cir_radius, cir_radius);
+}
+votes.printPositions();
+congress.printCongress();
+money.printDonors();
+}
+public void mouseClicked() {
+for (int row = 0; row < rowCount; row++) {
+if ((mouseX <= locationTable.getFloat(row, 1) + cir_radius) &&
+(mouseX >= locationTable.getFloat(row, 1) - cir_radius) &&
+(mouseY <= locationTable.getFloat(row, 2) + cir_radius) &&
+(mouseY >= locationTable.getFloat(row, 2) - cir_radius)) {
+congress.clearCongress();
+votes.clearVotes();
+money.clearDonors();
+state = "state="+locationTable.getString(row, 0);
+cir_x = locationTable.getFloat(row, 1);
+cir_y_top = locationTable.getFloat(row, 2) - cir_radius/2;
+cir_y_bttm = locationTable.getFloat(row, 2) + cir_radius/2;
+stateloc = mouseX;
+congress.getRep();
+congress.getSenator();
+}
+}
+congress.congressClicked();
+}
+class Congress {
+ArrayList<Congressman> congress; //arraylist of congressmen
+Congress() {
+congress = new ArrayList<Congressman>(); //initialize arraylist w/ constructor
+}
+public void clearCongress() {
+congress.clear();
+}
+public void trimCongress() {
+congress.trimToSize();
+}
+public void getRep() {
+String param = "113/house/members.json?";
+String api = "&api-key=";
+String request = base_congress_url+param+state+api+congress_api_key;
+JSON repData = JSON.parse(join(loadStrings(request), ""));
+JSON results_r = repData.getArray("results");
+JSON repResults = results_r.getObject(0);
+JSON repMembers = repResults.getArray("members");
+for (int i = 0; i < repMembers.length(); i++) {
+Congressman c = new Congressman();
+JSON jo = repMembers.getObject(i);
+c.id = jo.getString("id");
+c.title = "Representative";
+c.first_name = jo.getString("first_name");
+c.last_name = jo.getString("last_name");
+congress.add(c);
+}
+}
+public void getSenator() {
+String param = "113/senate/members.json?";
+String api = "&api-key=";
+String request = base_congress_url+param+state+api+congress_api_key;
+JSON senData = JSON.parse(join(loadStrings(request), ""));
+JSON results_s = senData.getArray("results");
+JSON senResults = results_s.getObject(0);
+JSON senMembers = senResults.getArray("members");
+for (int i = 0; i < senMembers.length(); i++) {
+Congressman c = new Congressman();
+JSON jo = senMembers.getObject(i);
+c.id = jo.getString("id");
+c.title = "Senator";
+c.first_name = jo.getString("first_name");
+c.last_name = jo.getString("last_name");
+congress.add(c);
+}
+}
+public void congressClicked() {
+for (Congressman c : congress) {
+float textheight = textAscent() + textDescent();
+if (stateloc < width/2) {
+if ((mouseY <= c.row_ht + textheight/2) &&
+(mouseY >= c.row_ht - textheight/2) &&
+(mouseX <= c.row_wdth+10) &&
+(mouseX >= 10)) {
+votes.clearVotes();
+money.clearDonors();
+member_id = c.id;
+votes.getVotes(member_id);
+votes.getSubjects();
+money.getDonor(c.last_name);
+money.matchDonor(c.first_name);
+money.getSummary();
+}
+}
+if (stateloc > width/2) {
+if ((mouseY <= c.row_ht + textheight/2) &&
+(mouseY >= c.row_ht - textheight/2) &&
+(mouseX <= width - 10) &&
+(mouseX >= width - 10 - c.row_wdth)) {
+votes.clearVotes();
+money.clearDonors();
+member_id = c.id;
+votes.getVotes(member_id);
+votes.getSubjects();
+money.getDonor(c.last_name);
+money.matchDonor(c.first_name);
+money.getSummary();
+}
+}
+}
+}
+public void printCongress() {
+float hgt = congress.size()*textsize/2;
+int i = 1;
+float ln_y_top = (height/2)-hgt;
+float ln_y_bttm = (height/2)+hgt+textsize/2;
+float ln_x_top = 0;
+String str_top;
+String str_bttm;
+float margin = 0;
+if (!congress.isEmpty()) {
+str_bttm = "";
+for (Congressman c : congress) {
+str_top = c.title+" "+c.first_name+" "+c.last_name;
+if (str_top.length() > str_bttm.length()) {
+str_bttm = str_top;
+}
+}
+if (stateloc < width/2) {
+ln_x_top = 10+textWidth(str_bttm);
+ln_x_bttm = 10+textWidth(str_bttm);
+margin = 10;
+}
+else {
+ln_x_top = width-10-textWidth(str_bttm);
+ln_x_bttm = width-10-textWidth(str_bttm);
+margin = width-10;
+}
+pushStyle();
+fill(0, 192, 0, 50);
+beginShape();
+vertex(cir_x, cir_y_top);
+vertex(ln_x_top, ln_y_top);
+vertex(margin, ln_y_top);
+vertex(margin, ln_y_bttm);
+vertex(ln_x_bttm, ln_y_bttm);
+vertex(cir_x, cir_y_bttm);
+endShape();
+popStyle();
+textSize(textsize);
+fill(0, 0, 0);
+for (Congressman c : congress) {
+if (stateloc < width/2) {
+textAlign(LEFT);
+text(c.title+" "+c.first_name+" "+c.last_name, 15, (height/2)-hgt+textsize*i);
+c.row_ht = (height/2)-hgt+textsize*i;
+c.row_wdth = textWidth(c.title+" "+c.first_name+" "+c.last_name);
+i++;
+}
+else {
+textAlign(RIGHT);
+text(c.title+" "+c.first_name+" "+c.last_name, width-15, (height/2)-hgt+textsize*i);
+c.row_ht = (height/2)-hgt+textsize*i;
+c.row_wdth = textWidth(c.title+" "+c.first_name+" "+c.last_name);
+i++;
+}
+}
+}
+}
+}
+/*
+for (Vote v : votelist) {
+if (v.id == c.id) {
+println(v.position);
+}
+}
+*/
+class Congressman {
+String id;
+String title;
+String first_name;
+String last_name;
+float row_ht;
+float row_wdth;
+Congressman() {
+}
+}
+class Donor {
+String name;
+String id;
+String first_name;
+String committee;
+boolean print = true;
+Donor() {
+}
+}
+class Money {
+ArrayList <Donor> donorlist;
+String id;
+XML xml;
+int list_length = 0;
+Money() {
+donorlist = new ArrayList<Donor>();
+}
+public void clearDonors() {
+donorlist.clear();
+}
+public void getDonor(String last_name) {
+donorlist.clear();
+list_length = 0;
+String param = "2012/candidates/search.json?query="+last_name+"&api-key=";
+String request = base_finance_url+param+finance_api_key;
+try {
+JSON moneyData = JSON.parse(join(loadStrings(request), ""));
+JSON results_id = moneyData.getArray("results");
+for (int i = 0; i < results_id.length(); i++) {
+Donor d = new Donor();
+JSON idResults = results_id.getObject(i);
+JSON candidate = idResults.getJSON("candidate");
+d.name = candidate.getString("name");
+d.id = candidate.getString("id");
+donorlist.add(d);
+}
+}
+catch (Exception e) {
+println("no donor data available");
+}
+for (Donor d : donorlist) {
+d.name = d.name.toLowerCase();
+}
+}
+public void matchDonor(String first_name) {
+first_name = first_name.toLowerCase();
+String[] m1;
+for (Donor d : (ArrayList<Donor>)donorlist.clone()) {
+m1 = match(d.name, first_name);
+if (m1 != null) {
+d.first_name = first_name;
+}
+else {
+donorlist.remove(d);
+}
+}
+for (Donor d : (ArrayList<Donor>)donorlist.clone()) {
+id = d.id;
+}
+donorlist.clear();
+}
+public void getSummary() {
+String param = "2012/candidates/"+id+"/independent_expenditures.json?api-key=";
+String request = base_finance_url+param+finance_api_key;
+try {
+JSON expenditures = JSON.parse(join(loadStrings(request), ""));
+JSON results_expen = expenditures.getArray("results");
+for (int i = 0; i < results_expen.length(); i++) {
+Donor d = new Donor();
+JSON donor_results = results_expen.getObject(i);
+if (donor_results.getString("support_or_oppose").equals("S")) {
+d.committee = donor_results.getString("fec_committee_name");
+donorlist.add(d);
+}
+}
+}
+catch (Exception e) {
+println("no expenditures found");
+}
+for (Donor d : (ArrayList<Donor>)donorlist.clone()) {
+for (int i = donorlist.indexOf(d)+1; i < donorlist.size(); i++) {
+String e_committee = donorlist.get(i).committee;
+if (d.committee.equals(e_committee)) {
+d.print = false;
+}
+else if (d.committee.isEmpty()) {
+d.print = false;
+}
+}
+}
+for (Donor d : donorlist) {
+if (d.print) {
+list_length++;
+}
+}
+}
+public void printDonors() {
+float hgt = list_length*textsize/2;
+float pos_width;
+float pos_height;
+int i = 1;
+if (!donorlist.isEmpty()) {
+String str_bttm = " ";
+for (Donor d : donorlist) {
+String str_top = d.committee;
+if (str_top.length() > str_bttm.length()) {
+str_bttm = str_top;
+}
+}
+pos_width = textWidth(str_bttm) + 20;
+pos_height = textsize * donorlist.size() + 20;
+//draw rectangle pos_width wide w/ right border 10 pts left of centerline
+fill(0, 192, 0, 50);
+rect((width/2 + 10), height/2 - hgt, pos_width, hgt * 2 + 5);
+//each line, add text left aligned
+textSize(textsize);
+fill(0, 0, 0);
+textAlign(LEFT);
+for (Donor d : donorlist) {
+if (d.print) {
+text(d.committee, width/2 + 20, (height/2)-hgt+textsize*i);
+i++;
+}
+}
+}
+}
+}
+class Table {
+String[][] data;
+int rowCount;
+Table() {
+data = new String[10][10];
+}
+Table(String filename) {
+String[] rows = loadStrings(filename);
+data = new String[rows.length][];
+for (int i = 0; i < rows.length; i++) {
+if (trim(rows[i]).length() == 0) {
+continue; // skip empty rows
+}
+if (rows[i].startsWith("#")) {
+continue; // skip comment lines
+}
+// split the row on the tabs
+String[] pieces = split(rows[i], TAB);
+// copy to the table array
+data[rowCount] = pieces;
+rowCount++;
+// this could be done in one fell swoop via:
+//data[rowCount++] = split(rows[i], TAB);
+}
+// resize the 'data' array as necessary
+data = (String[][]) subset(data, 0, rowCount);
+}
+public int getRowCount() {
+return rowCount;
+}
+// find a row by its name, returns -1 if no row found
+public int getRowIndex(String name) {
+for (int i = 0; i < rowCount; i++) {
+if (data[i][0].equals(name)) {
+return i;
+}
+}
+println("No row named '" + name + "' was found");
+return -1;
+}
+public String getRowName(int row) {
+return getString(row, 0);
+}
+public String getString(int rowIndex, int column) {
+return data[rowIndex][column];
+}
+public String getString(String rowName, int column) {
+return getString(getRowIndex(rowName), column);
+}
+public int getInt(String rowName, int column) {
+return parseInt(getString(rowName, column));
+}
+public int getInt(int rowIndex, int column) {
+return parseInt(getString(rowIndex, column));
+}
+public float getFloat(String rowName, int column) {
+return parseFloat(getString(rowName, column));
+}
+public float getFloat(int rowIndex, int column) {
+return parseFloat(getString(rowIndex, column));
+}
+public void setRowName(int row, String what) {
+data[row][0] = what;
+}
+public void setString(int rowIndex, int column, String what) {
+data[rowIndex][column] = what;
+}
+public void setString(String rowName, int column, String what) {
+int rowIndex = getRowIndex(rowName);
+data[rowIndex][column] = what;
+}
+public void setInt(int rowIndex, int column, int what) {
+data[rowIndex][column] = str(what);
+}
+public void setInt(String rowName, int column, int what) {
+int rowIndex = getRowIndex(rowName);
+data[rowIndex][column] = str(what);
+}
+public void setFloat(int rowIndex, int column, float what) {
+data[rowIndex][column] = str(what);
+}
+public void setFloat(String rowName, int column, float what) {
+int rowIndex = getRowIndex(rowName);
+data[rowIndex][column] = str(what);
+}
+// Write this table as a TSV file
+public void write(PrintWriter writer) {
+for (int i = 0; i < rowCount; i++) {
+for (int j = 0; j < data[i].length; j++) {
+if (j != 0) {
+writer.print(TAB);
+}
+if (data[i][j] != null) {
+writer.print(data[i][j]);
+}
+}
+writer.println();
+}
+writer.flush();
+}
+}
+class Vote {
+String id;
+JSON bill;
+String title;
+String number;
+String latest_action;
+String bill_uri;
+String question;
+String position;
+String subject;
+int stance;
+String stance_symbol;
+int votesonsubject;
+float row_ht;
+float row_wdth;
+boolean print = true;
+Vote() {
+}
+}
+class Votes {
+ArrayList<Vote> votelist;
+int list_length = 0;
+Votes() {
+votelist = new ArrayList<Vote>();
+}
+public void clearVotes() {
+votelist.clear();
+}
+public void getVotes(String member_id) {
+votelist.clear();
+list_length = 0;
+String param = "/members/"+member_id+"/votes.json?api-key=";
+String request = base_congress_url+param+congress_api_key;
+try {
+JSON voteData = JSON.parse(join(loadStrings(request), ""));
+JSON results_v = voteData.getArray("results");
+JSON voteResults = results_v.getObject(0);
+JSON Votes = voteResults.getArray("votes");
+for (int i = 0; i < Votes.length(); i++) {
+Vote v = new Vote();
+JSON jo = Votes.getObject(i);
+v.bill = jo.getJSON("bill");
+if (v.bill.length() != 0) {
+v.question = jo.getString("question");
+if ((v.question.equals("On Passage") == true) ||
+(v.question.equals("On Agreeing to the Resolution") == true) ||
+(v.question.equals("On Motion to Suspend the Rules and Pass") == true) ||
+(v.question.equals("On Motion to Suspend the Rules and Pass, as Amended") == true)) {
+v.number = v.bill.getString("number");
+v.id = member_id;
+v.title = v.bill.getString("title");
+v.latest_action = v.bill.getString("latest_action");
+v.bill_uri = v.bill.getString("bill_uri");
+v.position = jo.getString("position");
+votelist.add(v);
+}
+}
+}
+}
+catch (Exception e) {
+println("no data available");
+}
+}
+public void getSubjects() {
+for (Vote v : votelist) {
+StringBuffer sb = new StringBuffer(v.bill_uri);
+sb = sb.delete(sb.length()-5, sb.length());
+String param = sb.toString();
+String api = "/subjects.json?api-key=";
+String request = param+api+congress_api_key;
+try {
+JSON billSubject = JSON.parse(join(loadStrings(request), ""));
+JSON results_bs = billSubject.getArray("results");
+JSON subjResults = results_bs.getObject(0);
+JSON Subjects = subjResults.getArray("subjects");
+for (int i = 0; i < Subjects.length(); i++) {
+JSON jo = Subjects.getJSON(i);
+v.subject = jo.getString("name");
+}
+}
+catch (Exception e) {
+}
+}
+for (Vote v : (ArrayList<Vote>)votelist.clone()) {
+if (v.subject == null) {
+votelist.remove(v);
+}
+}
+for (Vote v : (ArrayList<Vote>)votelist.clone()) {
+v.votesonsubject = 1;
+if (v.position.equals("Yes")) {
+v.stance = 1;
+}
+else if (v.position.equals("No")) {
+v.stance = -1;
+}
+else {
+v.stance = 0;
+}
+for (int i = votelist.indexOf(v)+1; i < votelist.size(); i++) {
+int b_stance;
+String b_subject = votelist.get(i).subject;
+String b_position = votelist.get(i).position;
+if (v.subject.equals(b_subject)) {
+++v.votesonsubject;
+if (b_position.equals("Yes")) {
+b_stance = 1;
+}
+else if (b_position.equals("No")) {
+b_stance = -1;
+}
+else {
+b_stance = 0;
+}
+v.stance += b_stance;
+v.print = false;
+}
+}
+if (v.stance < 0) {
+v.stance_symbol = "N";
+}
+else if (v.stance == 0) {
+v.stance_symbol = "X";
+}
+else if (v.stance > 0) {
+v.stance_symbol = "Y";
+}
+}
+for (Vote v : votelist) {
+if (v.print) {
+list_length++;
+}
+}
+}
+public void printPositions() {
+//width of widest string +5
+float hgt = list_length*textsize/2;
+float pos_width;
+float pos_height;
+int i = 1;
+if (!votelist.isEmpty()) {
+String str_bttm = " ";
+for (Vote v : votelist) {
+String str_top = v.subject+" "+v.stance_symbol;
+if (str_top.length() > str_bttm.length()) {
+str_bttm = str_top;
+}
+}
+pos_width = textWidth(str_bttm) + 20;
+pos_height = textsize * votelist.size() + 20;
+//draw rectangle pos_width wide w/ right border 10 pts left of centerline
+fill(0, 192, 0, 50);
+rect((width/2 - pos_width - 10), height/2 - hgt, pos_width, hgt * 2 + 5);
+//each line, add text left aligned
+textSize(textsize);
+fill(0, 0, 0);
+textAlign(LEFT);
+for (Vote v : votelist) {
+if (v.print) {
+text(v.subject, width/2 - pos_width, (height/2)-hgt+textsize*i);
+i++;
+}
+}
+i = 1;
+textAlign(RIGHT);
+for (Vote v : votelist) {
+if (v.print) {
+text(v.stance_symbol, width/2 - 20, (height/2)-hgt+textsize*i);
+i++;
+}
+}
+}
+}
+}
+/*
+*/
+static public void main(String[] passedArgs) {
+String[] appletArgs = new String[] { "--full-screen", "--bgcolor=#666666", "--stop-color=#cccccc",
+"subversion_project_latest_map_2" };
+if (passedArgs != null) {
+PApplet.main(concat(appletArgs, passedArgs));
+} else {
+PApplet.main(appletArgs);
+}
+}
+}
